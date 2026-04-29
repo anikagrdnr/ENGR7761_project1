@@ -18,10 +18,15 @@ Garbage Classification Dataset (10 classes, 13,348 images)
 ## Project Structure
 project/
 ├── main.py        # entry point
+
 ├── config.py      # hyperparameters
+
 ├── model.py       # CNN(nn.Module)
+
 ├── dataset.py     # WasteDataset(Dataset), get_dataloader(), get_transforms()
+
 ├── trainer.py     # Trainer class
+
 └── data/          # auto-generated on first run
 
 
