@@ -7,13 +7,6 @@ By Anika Gardner gard0159 2163366
 
 ## Dataset
 Garbage Classification Dataset (10 classes, 13,348 images)
-- Classes: battery, biological, cardboard, clothes, glass, metal, paper, plastic, shoes, trash
-- Source: https://www.kaggle.com/datasets/mostafaabla/garbage-classification
-
-### Kaggle Setup
-1. Get Kaggle API key from kaggle.com/settings
-2. Place `kaggle.json` in `~/.kaggle/`
-3. Dataset downloads automatically on first run
 
 ## Project Structure
 project/
