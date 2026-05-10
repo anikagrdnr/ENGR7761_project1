@@ -21,7 +21,14 @@ project/
 
 ├── trainer.py     
 
-└── data/         
+└── data/           #split data provided in ENGR7761 using split_data.py (run once) 
+
+    ├── test.py     #70%
+
+    ├── train.py    #15%
+    
+    ├── val.py      #15%
+           
 
 
 ## Setup
@@ -38,5 +45,5 @@ pip install torch torchvision numpy pandas matplotlib kaggle
 
 ## Usage
 ```bash
-python main.py
+python main.py #or python3
 ```
