@@ -1,77 +1,87 @@
-https://www.sciencedirect.com/science/article/pii/S2773186324000768"""
-Project 1: MLCV
-
-CNN for rubbish classification 
-reference "a study of garbage classification with CNN" for first test archietcture 
-
-? wat transforms 
-- grayscale
--fourier
--etc
-
-? initialisation
-- weights (guassian, xavier, he, lecunn)
-- bias 
-
-? activation functions 
-
-init Includes
-- 3 x conv layers 
-- relu activation
-- pooling 
-- adam gradient 
-< 2hrs to solve 
-
-TODO
--adjust initial set up 
--change val method 
--report (only results is graded)
-
--> new function to make iid 
-
-**upload to github**
-
 """
-from modelBuilder import *
-from dataloader import *
+MLCV Project 1 — main.py
+Entry point for training the waste classification CNN.
 
+Reference: A Study of Garbage Classification with CNN
+https://www.sciencedirect.com/science/article/pii/S2773186324000768
 
-from tqdm.notebook import trange, tqdm
-import matplotlib.patches as mpatches
-from matplotlib.pyplot import figure
-import matplotlib.pyplot as plt
-from PIL import Image, ImageFilter
-import pandas as pd
-import numpy as np
-import zipfile
-import imageio
-import random
-import time
+TODO - get initial dataset train test split
+- check transforms
+- consider small subset 
+"""
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torch.nn.functional as f
 
-from torch.distributions import Normal
-from torch.autograd import Variable
+from scraps.project1_gd.config_gd        import *
+from scraps.project1_gd.model_gd         import CNN
+from dataset       import WasteData, get_transforms, get_dataloader
+from scraps.project1_gd.trainer_gd       import Trainer
+from scraps.project1_gd.visualisation_gd import run_all
 
-import os
-from pathlib import Path
-import random
 
-if __name__=="__main__":    
-    # Use Cuda GPU, if not available CPU
+if __name__ == "__main__":
+
+
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    print("Device used: " + str(device))
+    print(f"Device: {device}")
 
-    #import image and dataset 
-    img = Image.open('standardized_256/plastic/plastic_45.jpg')
-    plt.imshow(img)
+    #transforms - turn on flags 
+    train_tf = get_transforms(IMG_SIZE, train=True)
+    val_tf   = get_transforms(IMG_SIZE, train=False)
+    #test_tf = get_transforms(IMG_SIZE, test=True) #TODO adjsut test transform
 
-    #set up nn 
+    # NOTE: assumes data split into test train val run split_data.py to split og dataset 70/15/15
+    ds_train = WasteData(DATA_DIR / "train", transform=train_tf)
+    ds_val   = WasteData(DATA_DIR / "val",   transform=val_tf)
+    #ds_test = WasteData(DATA_DIR/"test", transform=test_tf) #test_df add severe transforms to induce domain shift 
 
-    #train and print/ output graph of losses 
+    dl_train = get_dataloader(ds_train, BATCH_SIZE, train=True,  num_workers=NUM_WORKERS)
+    dl_val   = get_dataloader(ds_val,   BATCH_SIZE, train=False, num_workers=NUM_WORKERS)
 
+    model = CNN(HIDDEN_SIZE, NUM_CLASSES).to(device)
+    print(f"Trainable parameters: "
+          f"{sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
 
+    optimiser = optim.Adam(model.parameters(), lr=LR)
+    criterion = nn.CrossEntropyLoss()
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimiser, T_max=N_EPOCHS)
 
+    trainer = Trainer(
+        model     = model,
+        optimiser = optimiser,
+        criterion = criterion,
+        dl_train  = dl_train,
+        dl_val    = dl_val,
+        device    = device,
+        scheduler = scheduler,
+        log_dir   = LOG_DIR,
+    )
+
+    train_losses, val_losses, train_accs, val_accs = trainer.fit(
+        N_EPOCHS, save_path=SAVE_PATH)
+
+    #saves params and saves visualisations. TODO add loogging to visualise whilst running.. 
+    #method in visualisation 
+    run_all(
+        model        = model,
+        optimiser    = optimiser,
+        criterion    = criterion,
+        scheduler    = scheduler,
+        config       = {
+            "IMG_SIZE":    IMG_SIZE,
+            "BATCH_SIZE":  BATCH_SIZE,
+            "N_EPOCHS":    N_EPOCHS,
+            "LR":          LR,
+            "HIDDEN_SIZE": HIDDEN_SIZE,
+            "NUM_CLASSES": NUM_CLASSES,
+        },
+        train_losses = train_losses,
+        val_losses   = val_losses,
+        train_accs   = train_accs,
+        val_accs     = val_accs,
+        dl_val       = dl_val,
+        train_dataset= ds_train,
+        device       = device,
+    )

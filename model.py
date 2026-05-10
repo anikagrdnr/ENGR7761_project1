@@ -1,137 +1,107 @@
 """
-Model Builder Class
--> copied from notebook starting template
-"""
+MLCV Project 1 — model.py
+CNN architecture for 10-class waste classification.
+-> adjusted from OG architecture:
+    - He initialisation 
+    - nested function call implementation 
+    - 
 
-from tqdm.notebook import trange, tqdm
-import matplotlib.patches as mpatches
-from matplotlib.pyplot import figure
-import matplotlib.pyplot as plt
-from PIL import Image, ImageFilter
-import pandas as pd
-import numpy as np
-import zipfile
-import imageio
-import random
-import time
+"""
 
 import torch
 import torch.nn as nn
-import torch.optim as optim
-import torch.nn.functional as f
-
-from torch.distributions import Normal
-from torch.autograd import Variable
+import torch.nn.functional as F
 
 
-#CNN class 
 class CNN(nn.Module):
-    
-    #init 
+    """
+    3-layer CNN for waste image classification.
+
+    Architecture:
+        Conv → BN → ReLU → MaxPool  (x3)
+        AdaptiveAvgPool
+        Flatten
+        Linear → BN → ReLU (x2)
+        Linear → logits
+
+    Args:
+        hidden_size : number of neurons in fully-connected layers
+                      (tune via config.py — try 256, 512, 1024)
+        nb_class    : number of output classes (10)
+    """
+
     def __init__(self, hidden_size, nb_class):
-        """
-        define architecture of CNN
-            - 3 layers
-            - activation function
-            - pooling
-        """
-                
         super(CNN, self).__init__()
 
-        self.cnn1 = nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, stride=2)
-        self.cnn2 = nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=2)
-        self.cnn3 = nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=2)
+        #reduced stride to 1, added padding 
+        self.conv1 = nn.Conv2d(3,   64,  kernel_size=3, stride=1, padding=1)
+        self.conv2 = nn.Conv2d(64,  128, kernel_size=3, stride=1, padding=1)
+        self.conv3 = nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=1)
 
-        self.linear1 = nn.Linear( 2304, hidden_size)
-        self.linear2 = nn.Linear(hidden_size, hidden_size)
-        self.linear_out = nn.Linear(hidden_size, nb_class)
+        #downsampling
+        self.pool  = nn.MaxPool2d(kernel_size=2, stride=2)
 
-        self.cnn1.weight.data.normal_(mean=0, std=3e-4)
-        self.cnn1.bias.data.fill_(0.1)
+        # AdaptiveAvgPool forces output to 3×3 regardless of input size
+        # -> removes hard-coded flatten dimension
+        # -> flatten size is always 256 * 3 * 3 = 2304
+        self.adaptive_pool = nn.AdaptiveAvgPool2d((3, 3))
 
-        self.cnn2.weight.data.normal_(mean=0, std=3e-4)
-        self.cnn2.bias.data.fill_(0.1)
-
-        self.cnn3.weight.data.normal_(mean=0, std=3e-4)
-        self.cnn3.bias.data.fill_(0.1)
-
-        self.linear1.weight.data.normal_(mean=0, std=3e-4)
-        self.linear1.bias.data.fill_(0.1)
-
-        self.linear2.weight.data.normal_(mean=0, std=3e-4)
-        self.linear2.bias.data.fill_(0.1)
-
-        self.linear_out.weight.data.normal_(mean=0, std=3e-4)
-        self.linear_out.bias.data.fill_(0.1)
-
-        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-
+        # Applied after conv, before ReLU (Conv → BN → ReLU)
         self.bn1 = nn.BatchNorm2d(64)
         self.bn2 = nn.BatchNorm2d(128)
         self.bn3 = nn.BatchNorm2d(256)
+        self.ln4 = nn.LayerNorm(hidden_size) #layernorm 
+        self.ln5 = nn.LayerNorm(hidden_size) #layernorm 
 
-        self.bn4 = nn.LayerNorm(hidden_size)
-        self.bn5 = nn.LayerNorm(hidden_size)
+        #adjust initial parameter of linear layer 
+        self.linear1    = nn.Linear(256 * 3 * 3, hidden_size)
+        self.linear2    = nn.Linear(hidden_size, hidden_size)
+        self.linear_out = nn.Linear(hidden_size, nb_class)
 
-    def forward(self, images):
+        # step 2 regularisation
+        # self.dropout = nn.Dropout(p=0.5)
+        #x=self.dropout # assigns dropout to x 
 
-        images = images.reshape([3, 256, 256])
-        images = np.float32(images)
-        images = torch.FloatTensor(images).to(device).unsqueeze(0)
+        # Kaiming (He) initialisation for ReLU networks
+        # Replaces original std=3e-4 which caused vanishing gradients
+        self._init_weights()
 
-        y_pred = f.relu(self.cnn1(images))
-        y_pred = self.bn1(y_pred)
-        y_pred = self.pool(y_pred)
-
-        y_pred = f.relu(self.cnn2(y_pred))
-        y_pred = self.bn2(y_pred)
-        y_pred = self.pool(y_pred)
-
-        y_pred = f.relu(self.cnn3(y_pred))
-        y_pred = self.bn3(y_pred)
-        y_pred = self.pool(y_pred)
-
-        y_pred = y_pred.reshape([1, 2304])
-
-        y_pred = f.relu(self.linear1(y_pred))
-        y_pred = self.bn4(y_pred)
-        y_pred = f.relu(self.linear2(y_pred))
-        y_pred = self.bn5(y_pred)
-
-        y_pred = self.linear_out(y_pred)
-
-        return y_pred
-
-"""
-other methods to analyse complexity etc. 
-"""
-#other methods 
-def count_parameters(model):
-
-    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+    #uses weight initialisation He for relu only 
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode="fan_out",
+                                        nonlinearity="relu")
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.kaiming_normal_(m.weight, nonlinearity="relu")
+                nn.init.constant_(m.bias, 0)
 
 
-def calculate_accuracy(y_pred, y):
+    def forward(self, x):
+        """
+        Args:
+            x : tensor of shape [B, 3, H, W] — batch from DataLoader
+        Returns:
+            logits : tensor of shape [B, nb_class]
+        """
+        # Conv block 1
+        x = self.pool(F.relu(self.bn1(self.conv1(x))))
+        # Conv block 2
+        x = self.pool(F.relu(self.bn2(self.conv2(x))))
+        # Conv block 3
+        x = self.pool(F.relu(self.bn3(self.conv3(x))))
 
-    _, index_y = torch.max(y, dim=-1)
-    _, index_y_pred = torch.max(y_pred[0], dim=-1)
+        # Adaptive pool + flatten
+        x = self.adaptive_pool(x)
+        x = x.flatten(1)
 
-    if index_y == index_y_pred:
+        # FC block 1
+        x = F.relu(self.ln4(self.linear1(x)))
+        # self.dropout(x)   # uncomment for step 2
 
-        acc = 1
+        # FC block 2
+        x = F.relu(self.ln5(self.linear2(x)))
+        # self.dropout(x)   # uncomment for step 2
 
-    else:
-
-        acc = 0
-
-    return acc
-
-def epoch_time(start_time, end_time):
-
-    elapsed_time = end_time - start_time
-    elapsed_mins = int(elapsed_time / 60)
-    elapsed_secs = int(elapsed_time - (elapsed_mins * 60))
-
-    return elapsed_mins, elapsed_secs
-    
-
+        return self.linear_out(x)
